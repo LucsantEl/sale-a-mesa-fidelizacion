@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff — Sale a Mesa</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+<div class="card">
+  <h1>📋 Panel de Staff</h1>
+
+  <div id="login">
+    <input type="password" id="password" placeholder="Contraseña de staff">
+    <button id="btnLogin">Entrar</button>
+  </div>
+
+  <div id="panel" style="display:none;">
+    <p>Escanea el QR del cliente:</p>
+    <div id="qr-reader"></div>
+    <button id="btnManual" style="margin-top:10px;">Ingresar ID manualmente</button>
+    <div id="resultado" class="msg"></div>
+  </div>
+</div>
+
+<script>
+  let staffPassword = '';
+  let scanner = null;
+
+  document.getElementById('btnLogin').addEventListener('click', () => {
+    staffPassword = document.getElementById('password').value;
+    if (!staffPassword) return;
+    document.getElementById('login').style.display = 'none';
+    document.getElementById('panel').style.display = 'block';
+    iniciarScanner();
+  });
+
+  function iniciarScanner() {
+    scanner = new Html5Qrcode('qr-reader');
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 220 },
+      onScan,
+      () => {}
+    );
+  }
+
+  document.getElementById('btnManual').addEventListener('click', () => {
+    const id = prompt('ID del cliente:');
+    if (id) onScan(id.trim());
+  });
+
+  let procesando = false;
+  async function onScan(texto) {
+    if (procesando) return;
+    let id = texto;
+    try {
+      const url = new URL(texto);
+      id = url.pathname.split('/').pop();
+    } catch (e) { /* no era una URL, se asume que ya es el ID */ }
+
+    procesando = true;
+    const resultado = document.getElementById('resultado');
+    resultado.textContent = 'Procesando...';
+    resultado.className = 'msg';
+
+    try {
+      const res = await fetch(`/api/visitas/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: staffPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error');
+
+      resultado.textContent = data.ganoPremio
+        ? `🎉 ${data.nombre} ganó un premio! (visita ${data.visitas})`
+        : `✅ Visita sumada a ${data.nombre} (${data.visitas} en total)`;
+      resultado.className = 'msg success';
+    } catch (e) {
+      resultado.textContent = e.message;
+      resultado.className = 'msg error';
+    }
+    setTimeout(() => { procesando = false; }, 2000);
+  }
+</script>
+</body>
+</html>

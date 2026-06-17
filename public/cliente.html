@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mi Tarjeta — Sale a Mesa</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="card" id="card">
+  <h1>☕ Mi Tarjeta</h1>
+  <div id="contenido">Cargando...</div>
+</div>
+
+<script>
+  const id = location.pathname.split('/').pop();
+
+  async function cargar() {
+    const res = await fetch(`/api/clientes/${id}`);
+    const c = await res.json();
+    const contenido = document.getElementById('contenido');
+    if (!res.ok) {
+      contenido.innerHTML = `<p class="error">Tarjeta no encontrada.</p>`;
+      return;
+    }
+    const enCiclo = c.visitas % c.visitasParaPremio;
+    const pct = (enCiclo / c.visitasParaPremio) * 100;
+    const ganoPremio = c.visitas > 0 && enCiclo === 0;
+
+    contenido.innerHTML = `
+      <p>Hola, <strong>${c.nombre}</strong> 👋</p>
+      <p>Visitas totales: <strong>${c.visitas}</strong></p>
+      <div class="progress-bar"><div class="progress-fill" style="width:${ganoPremio ? 100 : pct}%"></div></div>
+      <p>${ganoPremio ? '🎉 ¡Tienes un premio disponible! Muéstrale esto al staff.' : `${c.visitasParaPremio - enCiclo} visitas más para tu próximo premio`}</p>
+      <p style="font-size:0.85rem; color:#888;">Premios canjeados hasta hoy: ${c.premios_canjeados}</p>
+    `;
+  }
+
+  cargar();
+</script>
+</body>
+</html>

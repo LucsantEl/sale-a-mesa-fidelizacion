@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sale a Mesa — Tarjeta de Fidelización</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="card">
+  <h1>☕ Tarjeta Sale a Mesa</h1>
+  <p>Regístrate y junta visitas para ganar premios.</p>
+  <input type="text" id="nombre" placeholder="Tu nombre">
+  <input type="tel" id="celular" placeholder="Tu número de celular">
+  <button id="btnRegistrar">Registrarme</button>
+  <div class="msg" id="msg"></div>
+  <div id="resultado" style="display:none; margin-top:16px;">
+    <p>¡Listo! Este es tu QR — guárdalo o tómale captura.</p>
+    <img id="qrImg" style="width:100%; max-width:250px;">
+    <p><a id="linkTarjeta" target="_blank">Ver mi tarjeta</a></p>
+  </div>
+</div>
+
+<script>
+  document.getElementById('btnRegistrar').addEventListener('click', async () => {
+    const nombre = document.getElementById('nombre').value.trim();
+    const celular = document.getElementById('celular').value.trim();
+    const msg = document.getElementById('msg');
+    msg.textContent = '';
+    if (!nombre || !celular) {
+      msg.textContent = 'Completa tu nombre y celular.';
+      msg.className = 'msg error';
+      return;
+    }
+    try {
+      const res = await fetch('/api/clientes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, celular })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al registrar');
+
+      document.getElementById('qrImg').src = `/api/clientes/${data.id}/qr`;
+      document.getElementById('linkTarjeta').href = `/cliente/${data.id}`;
+      document.getElementById('resultado').style.display = 'block';
+      msg.textContent = data.existente ? 'Ya estabas registrado, aquí está tu QR.' : '¡Registro exitoso!';
+      msg.className = 'msg success';
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.className = 'msg error';
+    }
+  });
+</script>
+</body>
+</html>

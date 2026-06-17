@@ -1,0 +1,60 @@
+:root {
+  --brown: #5b2d8e;
+  --cream: #f7efd9;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: var(--cream);
+  color: var(--brown);
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  padding: 28px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+h1 { font-size: 1.4rem; margin-top: 0; }
+input {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  background: var(--brown);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+.progress-bar {
+  background: #eee;
+  border-radius: 999px;
+  height: 18px;
+  overflow: hidden;
+  margin: 16px 0;
+}
+.progress-fill {
+  background: var(--brown);
+  height: 100%;
+  transition: width 0.3s;
+}
+.msg { margin-top: 12px; font-size: 0.9rem; }
+.error { color: #c0392b; }
+.success { color: #1e8449; }
+#qr-reader { width: 100%; }
