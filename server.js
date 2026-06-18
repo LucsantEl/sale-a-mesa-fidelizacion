@@ -1,8 +1,16 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
 const Database = require('better-sqlite3');
+const { PDFDocument } = require('pdf-lib');
+
+const PLANTILLA_PATH = path.join(__dirname, 'assets', 'plantilla.pdf');
+// Posición del QR sobre la plantilla (1080x1920), centrado, ~50% del ancho.
+const QR_SIZE = 540;
+const QR_X = (1080 - QR_SIZE) / 2;
+const QR_Y = (1920 - QR_SIZE) / 2;
 
 const VISITS_FOR_PRIZE = 10;
 const STAFF_PASSWORD = process.env.STAFF_PASSWORD || 'saleamesa2026';
@@ -64,6 +72,31 @@ app.get('/api/clientes/:id/qr', async (req, res) => {
   const url = `${baseUrl(req)}/cliente/${req.params.id}`;
   const png = await QRCode.toBuffer(url, { width: 300, margin: 2 });
   res.type('png').send(png);
+});
+
+// Generar la tarjeta en PDF (plantilla + QR del cliente incrustado)
+app.get('/api/clientes/:id/tarjeta-pdf', async (req, res) => {
+  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  const url = `${baseUrl(req)}/cliente/${cliente.id}`;
+  const qrPng = await QRCode.toBuffer(url, { width: QR_SIZE, margin: 1 });
+
+  const plantillaBytes = fs.readFileSync(PLANTILLA_PATH);
+  const plantillaDoc = await PDFDocument.load(plantillaBytes);
+  const outDoc = await PDFDocument.create();
+  const [plantillaPage] = await outDoc.embedPdf(plantillaDoc, [0]);
+
+  const page = outDoc.addPage([plantillaPage.width, plantillaPage.height]);
+  page.drawPage(plantillaPage);
+
+  const qrImage = await outDoc.embedPng(qrPng);
+  page.drawImage(qrImage, { x: QR_X, y: QR_Y, width: QR_SIZE, height: QR_SIZE });
+
+  const pdfBytes = await outDoc.save();
+  res.type('application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="tarjeta-sale-a-mesa.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 });
 
 function requireStaff(req, res, next) {

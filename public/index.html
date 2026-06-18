@@ -15,9 +15,9 @@
   <button id="btnRegistrar">Registrarme</button>
   <div class="msg" id="msg"></div>
   <div id="resultado" style="display:none; margin-top:16px;">
-    <p>¡Listo! Este es tu QR — guárdalo o tómale captura.</p>
-    <img id="qrImg" style="width:100%; max-width:250px;">
-    <p><a id="linkTarjeta" target="_blank">Ver mi tarjeta</a></p>
+    <p>¡Listo! Descarga tu tarjeta con tu QR personal.</p>
+    <a id="linkPdf" target="_blank"><button type="button">📥 Descargar mi tarjeta (PDF)</button></a>
+    <p style="margin-top:10px;"><a id="linkTarjeta" target="_blank">Ver mi progreso de visitas</a></p>
   </div>
 </div>
 
@@ -41,7 +41,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al registrar');
 
-      document.getElementById('qrImg').src = `/api/clientes/${data.id}/qr`;
+      document.getElementById('linkPdf').href = `/api/clientes/${data.id}/tarjeta-pdf`;
       document.getElementById('linkTarjeta').href = `/cliente/${data.id}`;
       document.getElementById('resultado').style.display = 'block';
       msg.textContent = data.existente ? 'Ya estabas registrado, aquí está tu QR.' : '¡Registro exitoso!';
