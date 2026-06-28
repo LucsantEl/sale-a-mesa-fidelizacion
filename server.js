@@ -3,11 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const { PDFDocument } = require('pdf-lib');
 
 const PLANTILLA_PATH = path.join(__dirname, 'assets', 'plantilla.pdf');
-// Posición del QR sobre la plantilla (1080x1920), centrado, ~50% del ancho.
 const QR_SIZE = 540;
 const QR_X = (1080 - QR_SIZE) / 2;
 const QR_Y = (1920 - QR_SIZE) / 2;
@@ -16,22 +15,28 @@ const VISITS_FOR_PRIZE = 10;
 const STAFF_PASSWORD = process.env.STAFF_PASSWORD || 'saleamesa2026';
 const PORT = process.env.PORT || 3000;
 
-const db = new Database(path.join(__dirname, 'fidelizacion.db'));
-db.exec(`
-  CREATE TABLE IF NOT EXISTS clientes (
-    id TEXT PRIMARY KEY,
-    nombre TEXT NOT NULL,
-    celular TEXT NOT NULL,
-    visitas INTEGER NOT NULL DEFAULT 0,
-    premios_canjeados INTEGER NOT NULL DEFAULT 0,
-    creado TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS visitas_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cliente_id TEXT NOT NULL,
-    fecha TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clientes (
+      id TEXT PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      celular TEXT NOT NULL,
+      visitas INTEGER NOT NULL DEFAULT 0,
+      premios_canjeados INTEGER NOT NULL DEFAULT 0,
+      creado TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS visitas_log (
+      id SERIAL PRIMARY KEY,
+      cliente_id TEXT NOT NULL,
+      fecha TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+}
 
 const app = express();
 app.use(express.json());
@@ -41,29 +46,38 @@ function baseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
+function requireStaff(req, res, next) {
+  if (req.body.password !== STAFF_PASSWORD) {
+    return res.status(401).json({ error: 'Contraseña de staff incorrecta' });
+  }
+  next();
+}
+
 // Registrar nuevo cliente
-app.post('/api/clientes', (req, res) => {
+app.post('/api/clientes', async (req, res) => {
   const { nombre, celular } = req.body;
   if (!nombre || !celular) return res.status(400).json({ error: 'Falta nombre o celular' });
 
-  const existing = db.prepare('SELECT id FROM clientes WHERE celular = ?').get(celular);
-  if (existing) {
-    return res.json({ id: existing.id, existente: true });
+  const existing = await pool.query('SELECT id FROM clientes WHERE celular = $1', [celular]);
+  if (existing.rows.length > 0) {
+    return res.json({ id: existing.rows[0].id, existente: true });
   }
 
   const id = crypto.randomBytes(6).toString('hex');
-  db.prepare('INSERT INTO clientes (id, nombre, celular) VALUES (?, ?, ?)').run(id, nombre, celular);
+  await pool.query('INSERT INTO clientes (id, nombre, celular) VALUES ($1, $2, $3)', [id, nombre, celular]);
   res.json({ id, existente: false });
 });
 
-// Datos de un cliente (página pública que abre el QR)
-app.get('/api/clientes/:id', (req, res) => {
-  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+// Datos de un cliente
+app.get('/api/clientes/:id', async (req, res) => {
+  const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const cliente = result.rows[0];
+  const enCiclo = cliente.visitas % VISITS_FOR_PRIZE;
   res.json({
     ...cliente,
     visitasParaPremio: VISITS_FOR_PRIZE,
-    visitasRestantes: Math.max(0, VISITS_FOR_PRIZE - (cliente.visitas % VISITS_FOR_PRIZE || (cliente.visitas > 0 && cliente.visitas % VISITS_FOR_PRIZE === 0 ? VISITS_FOR_PRIZE : 0)))
+    visitasRestantes: Math.max(0, VISITS_FOR_PRIZE - enCiclo)
   });
 });
 
@@ -74,10 +88,11 @@ app.get('/api/clientes/:id/qr', async (req, res) => {
   res.type('png').send(png);
 });
 
-// Generar la tarjeta en PDF (plantilla + QR del cliente incrustado)
+// Generar tarjeta PDF
 app.get('/api/clientes/:id/tarjeta-pdf', async (req, res) => {
-  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const cliente = result.rows[0];
 
   const url = `${baseUrl(req)}/cliente/${cliente.id}`;
   const qrPng = await QRCode.toBuffer(url, { width: QR_SIZE, margin: 1 });
@@ -99,49 +114,47 @@ app.get('/api/clientes/:id/tarjeta-pdf', async (req, res) => {
   res.send(Buffer.from(pdfBytes));
 });
 
-function requireStaff(req, res, next) {
-  if (req.body.password !== STAFF_PASSWORD) {
-    return res.status(401).json({ error: 'Contraseña de staff incorrecta' });
-  }
-  next();
-}
-
 // Staff: sumar una visita
-app.post('/api/visitas/:id', requireStaff, (req, res) => {
-  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+app.post('/api/visitas/:id', requireStaff, async (req, res) => {
+  const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  db.prepare('UPDATE clientes SET visitas = visitas + 1 WHERE id = ?').run(cliente.id);
-  db.prepare('INSERT INTO visitas_log (cliente_id) VALUES (?)').run(cliente.id);
+  await pool.query('UPDATE clientes SET visitas = visitas + 1 WHERE id = $1', [req.params.id]);
+  await pool.query('INSERT INTO visitas_log (cliente_id) VALUES ($1)', [req.params.id]);
 
-  const actualizado = db.prepare('SELECT * FROM clientes WHERE id = ?').get(cliente.id);
+  const actualizado = (await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id])).rows[0];
   const ganoPremio = actualizado.visitas % VISITS_FOR_PRIZE === 0;
   res.json({ ...actualizado, ganoPremio, visitasParaPremio: VISITS_FOR_PRIZE });
 });
 
-// Staff: canjear premio (resetea el contador de ese ciclo)
-app.post('/api/canjear/:id', requireStaff, (req, res) => {
-  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+// Staff: canjear premio
+app.post('/api/canjear/:id', requireStaff, async (req, res) => {
+  const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  db.prepare('UPDATE clientes SET premios_canjeados = premios_canjeados + 1 WHERE id = ?').run(cliente.id);
-  const actualizado = db.prepare('SELECT * FROM clientes WHERE id = ?').get(cliente.id);
+  await pool.query('UPDATE clientes SET premios_canjeados = premios_canjeados + 1 WHERE id = $1', [req.params.id]);
+  const actualizado = (await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id])).rows[0];
   res.json(actualizado);
+});
+
+// Staff: estadísticas generales
+app.post('/api/stats', requireStaff, async (req, res) => {
+  const totalClientes = parseInt((await pool.query('SELECT COUNT(*) as n FROM clientes')).rows[0].n);
+  const totalVisitas = parseInt((await pool.query('SELECT COALESCE(SUM(visitas),0) as n FROM clientes')).rows[0].n);
+  const totalPremios = parseInt((await pool.query('SELECT COALESCE(SUM(premios_canjeados),0) as n FROM clientes')).rows[0].n);
+  const recientes = (await pool.query(
+    'SELECT nombre, celular, visitas, premios_canjeados, creado FROM clientes ORDER BY creado DESC LIMIT 10'
+  )).rows;
+  res.json({ totalClientes, totalVisitas, totalPremios, recientes });
 });
 
 app.get('/cliente/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'cliente.html'));
 });
 
-// Staff: estadísticas generales
-app.post('/api/stats', requireStaff, (req, res) => {
-  const totalClientes = db.prepare('SELECT COUNT(*) as n FROM clientes').get().n;
-  const totalVisitas = db.prepare('SELECT SUM(visitas) as n FROM clientes').get().n || 0;
-  const totalPremios = db.prepare('SELECT SUM(premios_canjeados) as n FROM clientes').get().n || 0;
-  const recientes = db.prepare(
-    'SELECT nombre, celular, visitas, premios_canjeados, creado FROM clientes ORDER BY creado DESC LIMIT 10'
-  ).all();
-  res.json({ totalClientes, totalVisitas, totalPremios, recientes });
+initDb().then(() => {
+  app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`));
+}).catch(err => {
+  console.error('Error conectando a la base de datos:', err);
+  process.exit(1);
 });
-
-app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`));
