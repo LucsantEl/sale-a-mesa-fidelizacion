@@ -133,4 +133,15 @@ app.get('/cliente/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'cliente.html'));
 });
 
+// Staff: estadísticas generales
+app.post('/api/stats', requireStaff, (req, res) => {
+  const totalClientes = db.prepare('SELECT COUNT(*) as n FROM clientes').get().n;
+  const totalVisitas = db.prepare('SELECT SUM(visitas) as n FROM clientes').get().n || 0;
+  const totalPremios = db.prepare('SELECT SUM(premios_canjeados) as n FROM clientes').get().n || 0;
+  const recientes = db.prepare(
+    'SELECT nombre, celular, visitas, premios_canjeados, creado FROM clientes ORDER BY creado DESC LIMIT 10'
+  ).all();
+  res.json({ totalClientes, totalVisitas, totalPremios, recientes });
+});
+
 app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`));

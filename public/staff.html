@@ -21,6 +21,11 @@
     <div id="qr-reader"></div>
     <button id="btnManual" style="margin-top:10px;">Ingresar ID manualmente</button>
     <div id="resultado" class="msg"></div>
+
+    <hr style="margin:20px 0; border-color:#ddd;">
+    <h2 style="font-size:1rem; margin-bottom:10px;">📊 Estadísticas</h2>
+    <button id="btnStats">Ver estadísticas</button>
+    <div id="stats" style="margin-top:14px;"></div>
   </div>
 </div>
 
@@ -84,6 +89,39 @@
     }
     setTimeout(() => { procesando = false; }, 2000);
   }
+
+  document.getElementById('btnStats').addEventListener('click', async () => {
+    const statsDiv = document.getElementById('stats');
+    statsDiv.textContent = 'Cargando...';
+    try {
+      const res = await fetch('/api/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: staffPassword })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Error');
+      statsDiv.innerHTML = `
+        <p>👥 Clientes registrados: <strong>${d.totalClientes}</strong></p>
+        <p>✅ Visitas totales: <strong>${d.totalVisitas}</strong></p>
+        <p>🎁 Premios canjeados: <strong>${d.totalPremios}</strong></p>
+        <h3 style="margin-top:12px; font-size:0.9rem;">Últimos 10 registros</h3>
+        <table style="width:100%; font-size:0.8rem; border-collapse:collapse;">
+          <tr style="text-align:left; border-bottom:1px solid #ccc;">
+            <th>Nombre</th><th>Visitas</th><th>Premios</th><th>Registro</th>
+          </tr>
+          ${d.recientes.map(c => `
+            <tr style="border-bottom:1px solid #eee;">
+              <td>${c.nombre}</td>
+              <td style="text-align:center;">${c.visitas}</td>
+              <td style="text-align:center;">${c.premios_canjeados}</td>
+              <td style="font-size:0.75rem; color:#888;">${c.creado.slice(0,10)}</td>
+            </tr>`).join('')}
+        </table>`;
+    } catch (e) {
+      statsDiv.textContent = e.message;
+    }
+  });
 </script>
 </body>
 </html>
