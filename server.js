@@ -152,9 +152,17 @@ app.get('/cliente/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'cliente.html'));
 });
 
-initDb().then(() => {
-  app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`));
-}).catch(err => {
+// En modo local levanta el servidor; en Vercel exporta el handler serverless
+const ready = initDb().catch(err => {
   console.error('Error conectando a la base de datos:', err);
   process.exit(1);
 });
+
+if (require.main === module) {
+  ready.then(() => app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`)));
+}
+
+module.exports = async (req, res) => {
+  await ready;
+  app(req, res);
+};
