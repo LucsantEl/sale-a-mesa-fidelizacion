@@ -53,8 +53,13 @@ function requireStaff(req, res, next) {
   next();
 }
 
+// Evita que un error de la base de datos (p. ej. un hiccup de Neon) tumbe
+// todo el proceso por un unhandled rejection; lo convierte en un 500 para
+// esa sola request.
+const ah = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
 // Registrar nuevo cliente
-app.post('/api/clientes', async (req, res) => {
+app.post('/api/clientes', ah(async (req, res) => {
   const { nombre, celular } = req.body;
   if (!nombre || !celular) return res.status(400).json({ error: 'Falta nombre o celular' });
 
@@ -66,10 +71,10 @@ app.post('/api/clientes', async (req, res) => {
   const id = crypto.randomBytes(6).toString('hex');
   await pool.query('INSERT INTO clientes (id, nombre, celular) VALUES ($1, $2, $3)', [id, nombre, celular]);
   res.json({ id, existente: false });
-});
+}));
 
 // Datos de un cliente
-app.get('/api/clientes/:id', async (req, res) => {
+app.get('/api/clientes/:id', ah(async (req, res) => {
   const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
   const cliente = result.rows[0];
@@ -79,17 +84,17 @@ app.get('/api/clientes/:id', async (req, res) => {
     visitasParaPremio: VISITS_FOR_PRIZE,
     visitasRestantes: Math.max(0, VISITS_FOR_PRIZE - enCiclo)
   });
-});
+}));
 
 // Generar imagen QR para un cliente
-app.get('/api/clientes/:id/qr', async (req, res) => {
+app.get('/api/clientes/:id/qr', ah(async (req, res) => {
   const url = `${baseUrl(req)}/cliente/${req.params.id}`;
   const png = await QRCode.toBuffer(url, { width: 300, margin: 2 });
   res.type('png').send(png);
-});
+}));
 
 // Generar tarjeta PDF
-app.get('/api/clientes/:id/tarjeta-pdf', async (req, res) => {
+app.get('/api/clientes/:id/tarjeta-pdf', ah(async (req, res) => {
   const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
   const cliente = result.rows[0];
@@ -112,10 +117,10 @@ app.get('/api/clientes/:id/tarjeta-pdf', async (req, res) => {
   res.type('application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="tarjeta-sale-a-mesa.pdf"`);
   res.send(Buffer.from(pdfBytes));
-});
+}));
 
 // Staff: sumar una visita
-app.post('/api/visitas/:id', requireStaff, async (req, res) => {
+app.post('/api/visitas/:id', requireStaff, ah(async (req, res) => {
   const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
@@ -125,20 +130,20 @@ app.post('/api/visitas/:id', requireStaff, async (req, res) => {
   const actualizado = (await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id])).rows[0];
   const ganoPremio = actualizado.visitas % VISITS_FOR_PRIZE === 0;
   res.json({ ...actualizado, ganoPremio, visitasParaPremio: VISITS_FOR_PRIZE });
-});
+}));
 
 // Staff: canjear premio
-app.post('/api/canjear/:id', requireStaff, async (req, res) => {
+app.post('/api/canjear/:id', requireStaff, ah(async (req, res) => {
   const result = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
   await pool.query('UPDATE clientes SET premios_canjeados = premios_canjeados + 1 WHERE id = $1', [req.params.id]);
   const actualizado = (await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id])).rows[0];
   res.json(actualizado);
-});
+}));
 
 // Staff: estadísticas generales
-app.post('/api/stats', requireStaff, async (req, res) => {
+app.post('/api/stats', requireStaff, ah(async (req, res) => {
   const totalClientes = parseInt((await pool.query('SELECT COUNT(*) as n FROM clientes')).rows[0].n);
   const totalVisitas = parseInt((await pool.query('SELECT COALESCE(SUM(visitas),0) as n FROM clientes')).rows[0].n);
   const totalPremios = parseInt((await pool.query('SELECT COALESCE(SUM(premios_canjeados),0) as n FROM clientes')).rows[0].n);
@@ -146,23 +151,28 @@ app.post('/api/stats', requireStaff, async (req, res) => {
     'SELECT nombre, celular, visitas, premios_canjeados, creado FROM clientes ORDER BY creado DESC LIMIT 10'
   )).rows;
   res.json({ totalClientes, totalVisitas, totalPremios, recientes });
-});
+}));
 
 app.get('/cliente/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'cliente.html'));
 });
 
-// En modo local levanta el servidor; en Vercel exporta el handler serverless
-const ready = initDb().catch(err => {
-  console.error('Error conectando a la base de datos:', err);
-  process.exit(1);
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Error interno del servidor' });
+});
+
+// Crea las tablas si hace falta, sin bloquear la respuesta a cada request:
+// antes, cualquier request (incluyendo servir staff.html) esperaba a que esto
+// terminara y moría con el proceso entero si Neon tenía un hiccup transitorio
+// al arrancar en frío. Los archivos estáticos y las rutas que sí usan la
+// base de datos ya no dependen de esto.
+initDb().catch(err => {
+  console.error('Error inicializando la base de datos:', err);
 });
 
 if (require.main === module) {
-  ready.then(() => app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`)));
+  app.listen(PORT, () => console.log(`Sale a Mesa fidelización corriendo en puerto ${PORT}`));
 }
 
-module.exports = async (req, res) => {
-  await ready;
-  app(req, res);
-};
+module.exports = app;
