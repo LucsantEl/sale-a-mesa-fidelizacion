@@ -33,6 +33,23 @@
   let staffPassword = '';
   let scanner = null;
 
+  // Link directo de "Escribir una opinión" en la ficha de Google Maps de Sale a Mesa
+  const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=0x902d6d0034559ec1:0x331100cc3a997eca';
+
+  function normalizarCelularEc(celular) {
+    const digits = (celular || '').replace(/\D/g, '');
+    if (digits.startsWith('593') && digits.length === 12) return digits;
+    if (digits.startsWith('0') && digits.length === 10) return '593' + digits.slice(1);
+    if (digits.length === 9) return '593' + digits;
+    return digits;
+  }
+
+  function whatsappReviewLink(nombre, celular) {
+    const numero = normalizarCelularEc(celular);
+    const mensaje = `¡Hola ${nombre}! Gracias por visitarnos en Sale a Mesa 🎲☕ Si te gustó la experiencia, nos ayudaría muchísimo que nos dejes una reseña acá: ${GOOGLE_REVIEW_URL}`;
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+  }
+
   document.getElementById('btnLogin').addEventListener('click', () => {
     staffPassword = document.getElementById('password').value;
     if (!staffPassword) return;
@@ -79,9 +96,14 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
 
-      resultado.textContent = data.ganoPremio
-        ? `🎉 ${data.nombre} ganó un premio! (visita ${data.visitas})`
-        : `✅ Visita sumada a ${data.nombre} (${data.visitas} en total)`;
+      resultado.innerHTML = `
+        ${data.ganoPremio
+          ? `🎉 ${data.nombre} ganó un premio! (visita ${data.visitas})`
+          : `✅ Visita sumada a ${data.nombre} (${data.visitas} en total)`}
+        <br>
+        <a href="${whatsappReviewLink(data.nombre, data.celular)}" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px;">
+          <button type="button">📝 Pedir reseña por WhatsApp</button>
+        </a>`;
       resultado.className = 'msg success';
     } catch (e) {
       resultado.textContent = e.message;
@@ -108,7 +130,7 @@
         <h3 style="margin-top:12px; font-size:0.9rem;">Últimos 10 registros</h3>
         <table style="width:100%; font-size:0.8rem; border-collapse:collapse;">
           <tr style="text-align:left; border-bottom:1px solid #ccc;">
-            <th>Nombre</th><th>Visitas</th><th>Premios</th><th>Registro</th>
+            <th>Nombre</th><th>Visitas</th><th>Premios</th><th>Registro</th><th></th>
           </tr>
           ${d.recientes.map(c => `
             <tr style="border-bottom:1px solid #eee;">
@@ -116,6 +138,7 @@
               <td style="text-align:center;">${c.visitas}</td>
               <td style="text-align:center;">${c.premios_canjeados}</td>
               <td style="font-size:0.75rem; color:#888;">${c.creado.slice(0,10)}</td>
+              <td><a href="${whatsappReviewLink(c.nombre, c.celular)}" target="_blank" rel="noopener" title="Pedir reseña por WhatsApp">📝</a></td>
             </tr>`).join('')}
         </table>`;
     } catch (e) {
