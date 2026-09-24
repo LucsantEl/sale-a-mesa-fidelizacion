@@ -12,7 +12,10 @@ const QR_X = (1080 - QR_SIZE) / 2;
 const QR_Y = (1920 - QR_SIZE) / 2;
 
 const VISITS_FOR_PRIZE = 10;
-const STAFF_PASSWORD = process.env.STAFF_PASSWORD || 'saleamesa2026';
+const STAFF_PASSWORD = process.env.STAFF_PASSWORD;
+if (!STAFF_PASSWORD) {
+  throw new Error('Falta la variable de entorno STAFF_PASSWORD');
+}
 const PORT = process.env.PORT || 3000;
 
 const pool = new Pool({

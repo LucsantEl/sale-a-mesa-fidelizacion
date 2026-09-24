@@ -2,3 +2,7 @@ node_modules/
 fidelizacion.db
 test-tarjeta.pdf
 test-tarjeta2.pdf
+.env
+.env.local
+.env*
+.vercel
