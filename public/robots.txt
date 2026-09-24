@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /staff
+Disallow: /cliente/
+
+Sitemap: https://sale-a-mesa-fidelizacion.vercel.app/sitemap.xml
