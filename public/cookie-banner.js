@@ -1,8 +1,34 @@
 (function () {
   var KEY = 'sam_cookies_ack';
-  try {
-    if (localStorage.getItem(KEY)) return;
-  } catch (e) {}
+  var GA_ID = 'G-VNXYQJ18VT';
+
+  // Páginas internas o personales: nunca se miden.
+  var path = location.pathname;
+  var internal = /^\/(staff|admin|qr)(\.html)?\/?$/.test(path);
+
+  function loadGA() {
+    if (internal || window.__samGA) return;
+    window.__samGA = true;
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { window.dataLayer.push(arguments); };
+    gtag('js', new Date());
+    // /cliente/<id> es un enlace personal: se reporta sin el id.
+    var cfg = {};
+    if (/^\/cliente\//.test(path)) {
+      cfg.page_location = location.origin + '/cliente';
+      cfg.page_path = '/cliente';
+    }
+    gtag('config', GA_ID, cfg);
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+    document.head.appendChild(s);
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  if (saved === 'granted') { loadGA(); return; }
+  if (saved === 'denied') return;
 
   var el = document.createElement('div');
   el.id = 'cookie-banner';
@@ -12,17 +38,23 @@
     'gap:14px;font-family:"Segoe UI",Arial,sans-serif;font-size:0.85rem;line-height:1.4;' +
     'box-shadow:0 -2px 10px rgba(0,0,0,0.2);';
 
+  var btn = 'flex-shrink:0;border-radius:6px;padding:8px 18px;font-weight:700;font-size:0.85rem;cursor:pointer;';
   el.innerHTML =
     '<p style="margin:0;max-width:520px;">' +
-      'Este sitio no usa cookies de rastreo ni publicidad. Solo guardamos los datos que nos ' +
-      'compartís al registrar tu tarjeta de fidelización.' +
+      'Usamos Google Analytics (cookies de medición) para entender cómo se usa el sitio, solo si aceptas. ' +
+      'Más info en nuestra <a href="https://sale-a-mesa-catalogo.vercel.app/privacidad" style="color:#f7efd9;text-decoration:underline;">Política de Privacidad</a>.' +
     '</p>' +
-    '<button id="cookie-banner-ok" style="flex-shrink:0;background:#f7efd9;color:#5b2d8e;border:none;' +
-      'border-radius:6px;padding:8px 18px;font-weight:700;font-size:0.85rem;cursor:pointer;">Entendido</button>';
+    '<div style="display:flex;gap:8px;flex-shrink:0;">' +
+      '<button id="cookie-banner-no" style="' + btn + 'background:transparent;color:#f7efd9;border:2px solid #f7efd9;">Rechazar</button>' +
+      '<button id="cookie-banner-ok" style="' + btn + 'background:#f7efd9;color:#5b2d8e;border:2px solid #f7efd9;">Aceptar</button>' +
+    '</div>';
 
   document.body.appendChild(el);
-  document.getElementById('cookie-banner-ok').addEventListener('click', function () {
-    try { localStorage.setItem(KEY, '1'); } catch (e) {}
+  function decide(value) {
+    try { localStorage.setItem(KEY, value); } catch (e) {}
     el.remove();
-  });
+    if (value === 'granted') loadGA();
+  }
+  document.getElementById('cookie-banner-ok').addEventListener('click', function () { decide('granted'); });
+  document.getElementById('cookie-banner-no').addEventListener('click', function () { decide('denied'); });
 })();
